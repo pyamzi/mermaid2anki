@@ -76,6 +76,39 @@ function refreshMarkupBox() {
   try {
     const serializer = new XMLSerializer();
     let raw = serializer.serializeToString(svgEl);
+    
+    // Clean up the SVG for minimal, readable output
+    // 1. Remove verbose mermaid-generated id attributes from opening <svg> tag (keep xmlns, class, viewBox, width, role)
+    raw = raw.replace(/<svg\s+[^>]*>/i, (match) => {
+      // Extract only essential attributes
+      const xmlnsMatch = match.match(/xmlns="[^"]*"/);
+      const classMatch = match.match(/class="[^"]*"/);
+      const viewBoxMatch = match.match(/viewBox="[^"]*"/);
+      const widthMatch = match.match(/width="[^"]*"/);
+      const roleMatch = match.match(/role="[^"]*"/);
+      
+      const parts = ['<svg'];
+      if (xmlnsMatch) parts.push(xmlnsMatch[0]);
+      if (classMatch) parts.push(classMatch[0]);
+      if (viewBoxMatch) parts.push(viewBoxMatch[0]);
+      if (widthMatch) parts.push(widthMatch[0]);
+      if (roleMatch) parts.push(roleMatch[0]);
+      return parts.join(' ') + '>';
+    });
+    
+    // 2. Remove mermaid-generated IDs from internal elements and styles (keep structure)
+    // Remove id="mmd-..." attributes
+    raw = raw.replace(/\s+id="mmd-[^"]*"/g, '');
+    // Remove style blocks with ID-scoped selectors (we have our injected simple style)
+    raw = raw.replace(/<style>#mmd-[^<]*<\/style>/g, '');
+    // Clean up marker IDs to simple names
+    raw = raw.replace(/id="mmd-[^"]*_flowchart-v2-([^"]*)"/g, 'id="$1"');
+    raw = raw.replace(/url\(#mmd-[^)]*_flowchart-v2-([^)]*)\)/g, 'url(#$1)');
+    // Remove verbose data- attributes
+    raw = raw.replace(/\s+data-[^=]*="[^"]*"/g, '');
+    // Remove aria-roledescription (keep role if present)
+    raw = raw.replace(/\s+aria-roledescription="[^"]*"/g, '');
+    
     const attrs = extraAttrs.value.trim();
     if (attrs) raw = raw.replace(/^<svg(\s|>)/i, `<svg ${attrs}$1`);
     markupBox.value = raw;
@@ -201,7 +234,7 @@ document.getElementById("renderBtn").addEventListener("click", async () => {
 });
 
 // Live-preview while typing (debounced)
-input.addEventListener('input', debounce(() => document.getElementById('renderBtn').click(), 600));
+input.addEventListener('input', debounce(() => document.getElementById('renderBtn').click(), 300));
 
 // When extraAttrs changes, apply to live SVG and refresh markup
 extraAttrs.addEventListener('input', debounce(() => {
@@ -244,6 +277,27 @@ copyMarkupBtn.addEventListener('click', async () => {
     await navigator.clipboard.writeText(markupBox.value);
     copyMarkupBtn.textContent = 'Copied!';
     setTimeout(() => (copyMarkupBtn.textContent = 'Copy SVG markup'), 1500);
+  } catch (e) {
+    alert('Copy failed: ' + e);
+  }
+});
+
+// Add a bottom "Copy SVG Embed" button that copies the full inline SVG markup
+const copyEmbedBtn = document.createElement('button');
+copyEmbedBtn.id = 'copyEmbedBtn';
+copyEmbedBtn.textContent = 'Copy SVG Embed';
+copyEmbedBtn.style.display = 'block';
+copyEmbedBtn.style.margin = '1rem auto';
+document.body.appendChild(copyEmbedBtn);
+
+copyEmbedBtn.addEventListener('click', async () => {
+  // Ensure markupBox is up to date
+  refreshMarkupBox();
+  if (!markupBox.value) return alert('No SVG to copy. Render first.');
+  try {
+    await navigator.clipboard.writeText(markupBox.value);
+    copyEmbedBtn.textContent = 'Copied SVG!';
+    setTimeout(() => (copyEmbedBtn.textContent = 'Copy SVG Embed'), 1500);
   } catch (e) {
     alert('Copy failed: ' + e);
   }
