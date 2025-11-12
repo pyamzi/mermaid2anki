@@ -44,3 +44,19 @@ body.dark-preview svg.m2a g[class*="node"] text, body.dark-preview svg.m2a g[cla
   #controls{gap:0.35rem}
   .CodeMirror{height:200px}
 }
+
+/* Kill any Mermaid error SVGs or labels if they ever appear */
+svg[aria-roledescription="error"],
+.error-icon,
+.error-text { display: none !important; }
+
+/* Mermaid v11.x can inject error containers with varying class names
+   (e.g. "error-text", "error-icon", "mermaid-error", parsererror nodes,
+   or other elements that include "error" in their class). Hide any such
+   elements inside the preview container so the "Syntax error in text"
+   UI is not shown. Scoped to #output to avoid hiding unrelated errors. */
+#output [class*="error"],
+#output .mermaid-error,
+#output .parseerror,
+#output .parsererror,
+#output svg[aria-roledescription="error"] { display: none !important; }
