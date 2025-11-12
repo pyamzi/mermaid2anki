@@ -1,282 +1,41 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Mermaid to SVG Embed</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.1/dist/mermaid.min.js"></script>
-<style>
-body { font-family: sans-serif; padding: 1rem; max-width: 700px; margin: auto; }
-textarea { width: 100%; height: 200px; font-family: monospace; }
-button { margin-top: 1rem; padding: 0.5rem 1rem; }
-#output { margin-top: 1.5rem; border: 1px solid #ccc; padding: 1rem; }
-#linkBox { margin-top: 1rem; width: 100%; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mermaid → Anki</title>
+
+  <!-- external libs -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/monokai.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.4.0/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+
+  <!-- app styles -->
+  <link rel="stylesheet" href="global.css">
 </head>
 <body>
+  <h2>Mermaid → Anki</h2>
 
-<h2>Mermaid → SVG Embed</h2>
-<textarea id="input" placeholder="Enter Mermaid diagram code here...">graph TD
-  A[Start] --> B{Is it working?}
-  B -- Yes --> C[Great!]
-  B -- No --> D[Fix it]</textarea>
-<br>
-<button id="renderBtn">Render</button>
-<button id="copyBtn">Copy data URL</button>
-<button id="downloadBtn">Download SVG</button>
-<div id="output"></div>
-<input id="linkBox" readonly placeholder="Your SVG embed link will appear here" />
-<div id="diagnostics" style="margin-top:.5rem;color:#a00;font-family:monospace;white-space:pre-wrap"></div>
-<div style="margin-top:1rem">
-  <label for="extraAttrs">Extra SVG attributes (e.g. onclick):</label>
-  <input id="extraAttrs" placeholder='onclick="..." style="cursor:pointer;"' style="width:100%;">
-  <button id="copyMarkupBtn">Copy SVG markup</button>
-  <textarea id="markupBox" style="width:100%;height:120px;margin-top:.5rem" readonly placeholder="Raw SVG markup will appear here after rendering"></textarea>
-</div>
+  <!-- initial mermaid sample; hidden textarea used to seed editor -->
+  <textarea id="input" style="display:none">graph TD
+    A[Start] --> B{Is it working?}
+    B -- Yes --> C[Great!]
+    B -- No --> D[Fix it]</textarea>
 
-<script>
-mermaid.initialize({ startOnLoad: false, securityLevel: 'antiscript' });
+  <!-- CodeMirror editor will replace this textarea -->
+  <textarea id="codeArea"></textarea>
 
-const input = document.getElementById("input");
-const output = document.getElementById("output");
-const linkBox = document.getElementById("linkBox");
-const copyBtn = document.getElementById('copyBtn');
-const downloadBtn = document.getElementById('downloadBtn');
-const diagnostics = document.getElementById('diagnostics');
-const copyMarkupBtn = document.getElementById('copyMarkupBtn');
-const markupBox = document.getElementById('markupBox');
-const extraAttrs = document.getElementById('extraAttrs');
+  <!-- controls (populated by JS) -->
+  <div id="controls" aria-hidden="false"></div>
 
-let lastSvgText = null;
+  <!-- rendered SVG goes here -->
+  <div id="output" role="region" aria-live="polite">Rendering will appear here</div>
 
-// Debounce helper for live preview
-function debounce(fn, wait) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
-}
+  <div class="muted">Tip: After copying, paste the SVG directly into the main Anki card editor (not the HTML source).</div>
 
-// Parse attribute string like: key="val" other='v' flag and apply to element
-function applyAttributesStringToElement(el, attrsStr) {
-  if (!el) return;
-  // Clear previously set attributes from extraAttrs? We'll only set/override provided keys.
-  const re = /([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"']+))/g;
-  let match;
-  const applied = [];
-  while ((match = re.exec(attrsStr)) !== null) {
-    const key = match[1];
-    const val = match[3] ?? match[4] ?? match[5] ?? '';
-    try { el.setAttribute(key, val); applied.push(key); } catch (e) { console.warn('Failed setAttribute', key, e); }
-  }
-  return applied;
-}
-
-// Update markupBox from current live SVG and extraAttrs
-function refreshMarkupBox() {
-  const svgEl = output.querySelector('svg');
-  if (!svgEl) return;
-  try {
-    const serializer = new XMLSerializer();
-    let raw = serializer.serializeToString(svgEl);
-    const attrs = extraAttrs.value.trim();
-    if (attrs) raw = raw.replace(/^<svg(\s|>)/i, `<svg ${attrs}$1`);
-    markupBox.value = raw;
-    lastSvgText = raw;
-    // update linkBox too
-    const base64 = btoa(unescape(encodeURIComponent(raw)));
-    linkBox.value = `data:image/svg+xml;base64,${base64}`;
-  } catch (e) {
-    console.warn('Failed to refresh markupBox', e);
-  }
-}
-
-document.getElementById("renderBtn").addEventListener("click", async () => {
-  const text = input.value.trim();
-  output.innerHTML = "Rendering...";
-
-  try {
-    // Use mermaid.parse if available to detect syntax errors early
-    if (typeof mermaid.parse === 'function') {
-      mermaid.parse(text);
-    }
-  } catch (parseErr) {
-    output.textContent = 'Mermaid syntax error:\n' + (parseErr && (parseErr.str || parseErr.message || parseErr));
-    linkBox.value = '';
-    return;
-  }
-
-  try {
-    // Render to SVG string
-    const id = 'mmd-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
-    const { svg } = await mermaid.render(id, text);
-
-    // Parse the SVG string into a real DOM node so we can embed it as <svg>
-    let imported = null;
-    let svgText = null;
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(svg, 'image/svg+xml');
-      // Check for parsererror which indicates xml parsing failed
-      const errs = doc.getElementsByTagName('parsererror');
-      if (errs && errs.length > 0) throw new Error('XML parse error');
-
-      const svgEl = doc.documentElement;
-      if (svgEl && svgEl.nodeName.toLowerCase() === 'svg') {
-        imported = document.importNode(svgEl, true);
-      }
-    } catch (parseErr) {
-      // Fallback: try to inject as HTML and query for an <svg> element
-      console.warn('SVG XML parse failed, trying HTML fallback:', parseErr);
-      const temp = document.createElement('div');
-      temp.innerHTML = svg; // allow browser HTML parser to produce an SVG element
-      const found = temp.querySelector('svg');
-      if (found) imported = found;
-      else {
-        diagnostics.textContent = 'Failed to parse SVG from Mermaid output.';
-        console.error('Mermaid output (no SVG found):', svg);
-      }
-    }
-
-    if (!imported) {
-      output.textContent = 'No SVG could be produced from Mermaid output.';
-      linkBox.value = '';
-      lastSvgText = null;
-      return;
-    }
-
-  // Ensure the svg has xmlns attribute for embedding
-  if (!imported.getAttribute('xmlns')) imported.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    // Add a class for easy targeting in Anki cards
-    try { imported.classList.add('m2a'); } catch (e) {}
-
-    // Inject an internal SVG style that forces node shapes to white fills and black strokes
-    // and sets node text to black while leaving edge/arrow labels untouched.
-    try {
-      const svgNS = 'http://www.w3.org/2000/svg';
-      const styleEl = document.createElementNS(svgNS, 'style');
-      styleEl.textContent = `
-        /* mermaid2anki black-and-white theme: nodes white fill, black strokes, node text black */
-        g[class*="node"] rect,
-        g[class*="node"] circle,
-        g[class*="node"] ellipse,
-        g[class*="node"] polygon,
-        g[class*="node"] polyline,
-        g[class*="node"] path { fill: #fff !important; stroke: #000 !important; }
-
-        /* Node text (labels inside nodes) */
-        g[class*="node"] text,
-        g[class*="node"] tspan,
-        .label { fill: #000 !important; }
-      `;
-      imported.insertBefore(styleEl, imported.firstChild || null);
-    } catch (e) {
-      console.warn('Failed to inject SVG style', e);
-    }
-
-  // Clear previous output and append the SVG element
-  output.innerHTML = '';
-  // Apply extra attributes to the live SVG so preview matches markup
-  const attrsStr = extraAttrs.value.trim();
-  if (attrsStr) applyAttributesStringToElement(imported, attrsStr);
-  output.appendChild(imported);
-
-    // Serialize to normalized SVG text and store for copy/download
-    try {
-      const serializer = new XMLSerializer();
-      svgText = serializer.serializeToString(imported);
-    } catch (serr) {
-      // As a last resort, use the original string
-      svgText = svg;
-    }
-    lastSvgText = svgText;
-
-    // Create a proper data URL. Use base64 for safety with Netlify / data URIs.
-    const base64 = btoa(unescape(encodeURIComponent(svgText)));
-    const dataURL = `data:image/svg+xml;base64,${base64}`;
-    linkBox.value = dataURL;
-    // Prepare raw markup with optional extra attributes
-    try { refreshMarkupBox(); } catch (e) { markupBox.value = svgText; }
-  } catch (err) {
-    output.textContent = 'Error rendering Mermaid diagram:\n' + (err && (err.message || err));
-    linkBox.value = '';
-  }
-});
-
-// Live-preview while typing (debounced)
-input.addEventListener('input', debounce(() => document.getElementById('renderBtn').click(), 300));
-
-// When extraAttrs changes, apply to live SVG and refresh markup
-extraAttrs.addEventListener('input', debounce(() => {
-  const svgEl = output.querySelector('svg');
-  if (svgEl) {
-    applyAttributesStringToElement(svgEl, extraAttrs.value.trim());
-    refreshMarkupBox();
-  }
-}, 200));
-
-copyBtn.addEventListener('click', async () => {
-  if (!lastSvgText) return alert('No SVG to copy. Render first.');
-  try {
-    const base64 = btoa(unescape(encodeURIComponent(lastSvgText)));
-    const dataURL = `data:image/svg+xml;base64,${base64}`;
-    await navigator.clipboard.writeText(dataURL);
-    copyBtn.textContent = 'Copied!';
-    setTimeout(() => (copyBtn.textContent = 'Copy data URL'), 1500);
-  } catch (e) {
-    alert('Copy failed: ' + e);
-  }
-});
-
-downloadBtn.addEventListener('click', () => {
-  if (!lastSvgText) return alert('No SVG to download. Render first.');
-  const blob = new Blob([lastSvgText], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'diagram.svg';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-});
-
-copyMarkupBtn.addEventListener('click', async () => {
-  if (!markupBox.value) return alert('No SVG markup available. Render first.');
-  try {
-    await navigator.clipboard.writeText(markupBox.value);
-    copyMarkupBtn.textContent = 'Copied!';
-    setTimeout(() => (copyMarkupBtn.textContent = 'Copy SVG markup'), 1500);
-  } catch (e) {
-    alert('Copy failed: ' + e);
-  }
-});
-
-// Add a bottom "Copy SVG Embed" button that copies the full inline SVG markup
-const copyEmbedBtn = document.createElement('button');
-copyEmbedBtn.id = 'copyEmbedBtn';
-copyEmbedBtn.textContent = 'Copy SVG Embed';
-copyEmbedBtn.style.display = 'block';
-copyEmbedBtn.style.margin = '1rem auto';
-document.body.appendChild(copyEmbedBtn);
-
-copyEmbedBtn.addEventListener('click', async () => {
-  // Ensure markupBox is up to date
-  refreshMarkupBox();
-  if (!markupBox.value) return alert('No SVG to copy. Render first.');
-  try {
-    await navigator.clipboard.writeText(markupBox.value);
-    copyEmbedBtn.textContent = 'Copied SVG!';
-    setTimeout(() => (copyEmbedBtn.textContent = 'Copy SVG Embed'), 1500);
-  } catch (e) {
-    alert('Copy failed: ' + e);
-  }
-});
-
-// Auto-render the example on load
-// Auto-render the example on load
-window.addEventListener('DOMContentLoaded', () => {
-  // Auto-click the render button to reuse the same logic
-  document.getElementById('renderBtn').click();
-});
-</script>
-
+  <!-- application script -->
+  <script src="main.js" defer></script>
 </body>
 </html>

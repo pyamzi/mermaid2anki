@@ -1,0 +1,46 @@
+:root{
+  --max-width:900px;
+  --gap:0.5rem;
+  --muted-color:#666;
+  --light-bg:#fff;
+  --dark-bg:#1e1e1e;
+  --card-bg:#fff;
+  --card-border:#ccc;
+}
+
+/* Page layout */
+html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+body{max-width:var(--max-width);margin:1rem auto;padding:1rem;background:var(--light-bg);color:#111;box-sizing:border-box}
+
+/* Header */
+h2{text-align:center;margin:0 0 0.8rem 0}
+
+/* CodeMirror container */
+.CodeMirror{height:260px;border:1px solid var(--card-border);font-size:14px}
+
+/* Controls & buttons */
+#controls{display:flex;gap:var(--gap);justify-content:center;margin:1rem 0;flex-wrap:wrap}
+button{padding:0.45rem 0.9rem;border-radius:6px;border:1px solid #bbb;background:#f5f5f5;cursor:pointer}
+button:active{transform:translateY(1px)}
+button[disabled]{opacity:0.6;cursor:not-allowed}
+
+/* Output area */
+#output{margin-top:1rem;border:1px solid var(--card-border);padding:1rem;display:flex;justify-content:center;align-items:center;min-height:160px;background:var(--card-bg);box-sizing:border-box}
+#output svg{display:block;max-width:100%;height:auto}
+
+/* Tip text */
+.muted{color:var(--muted-color);text-align:center;margin-top:0.4rem;font-size:0.95rem}
+
+/* Dark preview toggle (preview only; original SVG content is not modified) */
+body.dark-preview{background:var(--dark-bg);color:#e0e0e0}
+body.dark-preview .CodeMirror, body.dark-preview #output, body.dark-preview button{background:#2d2d2d;color:#e0e0e0;border-color:#444}
+body.dark-preview button{background:#3a3a3a;border:1px solid #555}
+body.dark-preview button:hover{background:#4a4a4a}
+body.dark-preview svg.m2a{filter:invert(1) hue-rotate(180deg)}
+body.dark-preview svg.m2a g[class*="node"] text, body.dark-preview svg.m2a g[class*="node"] tspan, body.dark-preview svg.m2a .label{fill:#fff !important}
+
+/* Responsive */
+@media (max-width:520px){
+  #controls{gap:0.35rem}
+  .CodeMirror{height:200px}
+}
