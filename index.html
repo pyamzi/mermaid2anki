@@ -19,10 +19,9 @@
   <h2>Mermaid → Anki</h2>
 
   <!-- initial mermaid sample; hidden textarea used to seed editor -->
-  <textarea id="input" style="display:none">graph TD
-    A[Start] --> B{Is it working?}
-    B -- Yes --> C[Great!]
-    B -- No --> D[Fix it]</textarea>
+  <textarea id="input" style="display:none">flowchart TD
+  Pyruvate -->|Pyruvate decarboxylase| Acetaldehyde
+  Acetaldehyde -->|Alcohol dehydrogenase| Ethanol</textarea>
 
   <!-- CodeMirror editor will replace this textarea -->
   <textarea id="codeArea"></textarea>
