@@ -5,6 +5,14 @@
 // - One button: Copy raw SVG (html + plain text). No images written.
 
 (() => {
+  // Centralized style variables
+  const STYLE = {
+    nodeFill: '#ffffff',
+    nodeStroke: '#000000',
+    nodeText: '#000000',
+    edgeStroke: '#888888'
+  };
+
   // 1) Initialize Mermaid safely (and silence its error channel)
   try {
     mermaid.initialize({
@@ -13,10 +21,10 @@
       theme: 'base', // fixed geometry and neutral baseline
       themeVariables: {
         background: 'transparent',
-        primaryColor: '#ffffff',
-        primaryBorderColor: '#000000',
-        lineColor: '#888888',
-        textColor: '#000000',
+        primaryColor: STYLE.nodeFill,
+        primaryBorderColor: STYLE.nodeStroke,
+        lineColor: STYLE.edgeStroke,
+        textColor: STYLE.nodeText,
         fontSize: '12px',
         fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif'
       },
@@ -59,15 +67,14 @@
     if (firstLine && !/^(graph|flowchart|sequenceDiagram|gantt|classDiagram|stateDiagram|pie|erDiagram|journey)/i.test(firstLine.trim()))
       t = 'graph TD\n' + t;
     t = t.replace(/-\s*>\s*/g, '-->').replace(/-{2,}>/g, '-->');
-    // Force all nodes to be rectangles
-    t = t.replace(/\{([^{}]+)\}/g, '[$1]');
-    t = t.replace(/\(([^\(\)]+)\)/g, '[$1]');
-    t = t.replace(/> ?\(([^\)]+)\)/g, '>[$1]');
     const sqDiff = (t.match(/\[/g) || []).length - (t.match(/\]/g) || []).length;
     if (sqDiff > 0) t += ']'.repeat(sqDiff);
     const parDiff = (t.match(/\(/g) || []).length - (t.match(/\)/g) || []).length;
     if (parDiff > 0) t += ')'.repeat(parDiff);
     t = t.replace(/<\/?[^>]+(>|$)/g, '').replace(/\n{3,}/g, '\n\n');
+    t = t.replace(/\|([^|]+)\|/g, (_, lbl) => '|' + '     ' + lbl.trim() + '     ' + '|');
+    // Add 5 spaces around all node labels [text]
+    t = t.replace(/\[([^\]]+)\]/g, (_, lbl) => '[' + '     ' + lbl.trim() + '     ' + ']');
     return t;
   }
 
@@ -120,6 +127,24 @@
 
       const imported = document.importNode(svgEl, true);
       imported.classList.add('m2a');
+
+      const styleElTop = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleElTop.textContent = `
+        g.label, g.node .label, .edgeLabel {
+          overflow: visible !important;
+        }
+        g.label *, g.node .label *, .edgeLabel * {
+          white-space: nowrap !important;
+          text-anchor: middle !important;
+          dominant-baseline: middle !important;
+          pointer-events: none !important;
+        }
+        g.node .label, g.label {
+          z-index: 9999 !important;
+        }
+      `;
+      imported.insertBefore(styleElTop, imported.firstChild || null);
+
       const out = document.getElementById('output');
       out.innerHTML = '';
       out.appendChild(imported);
@@ -132,6 +157,8 @@
           txt.setAttribute('text-anchor', 'middle');
           txt.setAttribute('dominant-baseline', 'middle');
           txt.style.textAlign = 'center';
+          txt.style.whiteSpace = 'nowrap';
+          txt.style.overflow = 'visible';
         });
       });
 
@@ -140,16 +167,19 @@
         const shape = node.querySelector('rect, ellipse, polygon, path');
         const label = node.querySelector('g.label, foreignObject, text');
         if (shape && label && shape.nextSibling !== label) {
-          node.appendChild(label); // text goes on top
+          node.style.overflow = 'visible';
+          if (label.parentNode !== node) {
+            node.appendChild(label);
+          }
         }
       });
 
       // --- 2. Light gray shape outlines to match arrows ---
       Array.from(imported.querySelectorAll('g.node rect, g.node ellipse, g.node polygon, g.node path'))
         .forEach(shape => {
-          shape.setAttribute('stroke', '#888888');
+          shape.setAttribute('stroke', STYLE.nodeStroke);
           shape.setAttribute('stroke-width', '1.4');
-          shape.setAttribute('fill', '#ffffff');
+          shape.setAttribute('fill', STYLE.nodeFill);
         });
 
       // --- 3. Center the SVG itself on Anki cards ---
@@ -178,37 +208,10 @@
         line[class*="edge"],
         path[class*="message"],
         line[class*="message"] {
-          stroke: #888888 !important;
+          stroke: ${STYLE.edgeStroke} !important;
         }
       `;
       imported.insertBefore(styleEl2, imported.firstChild || null);
-
-      // --- 5. Force true text centering relative to each shape (fixed local coords) ---
-      Array.from(imported.querySelectorAll('g.node')).forEach(node => {
-        const shape = node.querySelector('rect, ellipse, polygon, path');
-        const labelGroup = node.querySelector('g.label');
-        if (!shape || !labelGroup) return;
-
-        // Get bounding boxes in the node's local coordinate system
-        const shapeBox = shape.getBBox();
-        const labelBox = labelGroup.getBBox();
-
-        // Compute how much to shift the label relative to the shape's center
-        const dx = (shapeBox.width - labelBox.width) / 2 + (shapeBox.x - labelBox.x);
-        const dy = (shapeBox.height - labelBox.height) / 2 + (shapeBox.y - labelBox.y);
-
-        // Reset any previous translate and apply correction
-        let baseTransform = labelGroup.getAttribute('transform') || '';
-        baseTransform = baseTransform.replace(/translate\([^)]+\)/, '').trim();
-        labelGroup.setAttribute('transform', `${baseTransform} translate(${dx}, ${dy})`);
-
-        // Ensure text alignment is centered
-        labelGroup.querySelectorAll('text, tspan, foreignObject').forEach(txt => {
-          txt.setAttribute('text-anchor', 'middle');
-          txt.setAttribute('dominant-baseline', 'middle');
-          txt.style.textAlign = 'center';
-        });
-      });
 
       const serializer = new XMLSerializer();
       let svgText = serializer.serializeToString(imported);
@@ -273,5 +276,3 @@
 
   window.addEventListener('unhandledrejection', e => e.preventDefault());
 })();
-
-
