@@ -59,6 +59,10 @@
     if (firstLine && !/^(graph|flowchart|sequenceDiagram|gantt|classDiagram|stateDiagram|pie|erDiagram|journey)/i.test(firstLine.trim()))
       t = 'graph TD\n' + t;
     t = t.replace(/-\s*>\s*/g, '-->').replace(/-{2,}>/g, '-->');
+    // Force all nodes to be rectangles
+    t = t.replace(/\{([^{}]+)\}/g, '[$1]');
+    t = t.replace(/\(([^\(\)]+)\)/g, '[$1]');
+    t = t.replace(/> ?\(([^\)]+)\)/g, '>[$1]');
     const sqDiff = (t.match(/\[/g) || []).length - (t.match(/\]/g) || []).length;
     if (sqDiff > 0) t += ']'.repeat(sqDiff);
     const parDiff = (t.match(/\(/g) || []).length - (t.match(/\)/g) || []).length;
@@ -120,6 +124,91 @@
       out.innerHTML = '';
       out.appendChild(imported);
       out.style.borderColor = 'green';
+
+      // Post-render: center all text inside each node
+      Array.from(imported.querySelectorAll('g.node')).forEach(node => {
+        const texts = node.querySelectorAll('text, tspan, foreignObject');
+        texts.forEach(txt => {
+          txt.setAttribute('text-anchor', 'middle');
+          txt.setAttribute('dominant-baseline', 'middle');
+          txt.style.textAlign = 'center';
+        });
+      });
+
+      // --- 1. Move text above shapes so it can overflow ---
+      Array.from(imported.querySelectorAll('g.node')).forEach(node => {
+        const shape = node.querySelector('rect, ellipse, polygon, path');
+        const label = node.querySelector('g.label, foreignObject, text');
+        if (shape && label && shape.nextSibling !== label) {
+          node.appendChild(label); // text goes on top
+        }
+      });
+
+      // --- 2. Light gray shape outlines to match arrows ---
+      Array.from(imported.querySelectorAll('g.node rect, g.node ellipse, g.node polygon, g.node path'))
+        .forEach(shape => {
+          shape.setAttribute('stroke', '#888888');
+          shape.setAttribute('stroke-width', '1.4');
+          shape.setAttribute('fill', '#ffffff');
+        });
+
+      // --- 3. Center the SVG itself on Anki cards ---
+      imported.removeAttribute('width');
+      imported.removeAttribute('height');
+      imported.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      imported.style.display = 'block';
+      imported.style.marginLeft = 'auto';
+      imported.style.marginRight = 'auto';
+      imported.style.height = 'auto';
+      imported.style.width = 'auto';
+
+      // --- 4. Add overflow-safe text and consistent arrow color ---
+      const styleEl2 = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleEl2.textContent = `
+        g[class*="node"] {
+          overflow: visible !important;
+        }
+        g[class*="node"] foreignObject,
+        g[class*="node"] text,
+        g[class*="node"] tspan {
+          overflow: visible !important;
+          pointer-events: none !important;
+        }
+        path[class*="edge"],
+        line[class*="edge"],
+        path[class*="message"],
+        line[class*="message"] {
+          stroke: #888888 !important;
+        }
+      `;
+      imported.insertBefore(styleEl2, imported.firstChild || null);
+
+      // --- 5. Force true text centering relative to each shape (fixed local coords) ---
+      Array.from(imported.querySelectorAll('g.node')).forEach(node => {
+        const shape = node.querySelector('rect, ellipse, polygon, path');
+        const labelGroup = node.querySelector('g.label');
+        if (!shape || !labelGroup) return;
+
+        // Get bounding boxes in the node's local coordinate system
+        const shapeBox = shape.getBBox();
+        const labelBox = labelGroup.getBBox();
+
+        // Compute how much to shift the label relative to the shape's center
+        const dx = (shapeBox.width - labelBox.width) / 2 + (shapeBox.x - labelBox.x);
+        const dy = (shapeBox.height - labelBox.height) / 2 + (shapeBox.y - labelBox.y);
+
+        // Reset any previous translate and apply correction
+        let baseTransform = labelGroup.getAttribute('transform') || '';
+        baseTransform = baseTransform.replace(/translate\([^)]+\)/, '').trim();
+        labelGroup.setAttribute('transform', `${baseTransform} translate(${dx}, ${dy})`);
+
+        // Ensure text alignment is centered
+        labelGroup.querySelectorAll('text, tspan, foreignObject').forEach(txt => {
+          txt.setAttribute('text-anchor', 'middle');
+          txt.setAttribute('dominant-baseline', 'middle');
+          txt.style.textAlign = 'center';
+        });
+      });
 
       const serializer = new XMLSerializer();
       let svgText = serializer.serializeToString(imported);
@@ -184,4 +273,5 @@
 
   window.addEventListener('unhandledrejection', e => e.preventDefault());
 })();
+
 
